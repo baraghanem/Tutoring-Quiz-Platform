@@ -1,0 +1,19 @@
+services:
+  quiz-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nour-quiz-platform
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - JWT_SECRET=nour-quiz-platform-jwt-production-secret-key-2024
+      - DB_PATH=/app/data/quiz.db
+    volumes:
+      - quiz_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  quiz_data:
+    driver: local
