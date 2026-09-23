@@ -15,32 +15,33 @@ function createTestDb() {
     CREATE TABLE classes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
     CREATE TABLE users (
       id INTEGER PRIMARY KEY AUTOINCREMENT, name_ar TEXT, name_en TEXT,
-      email TEXT UNIQUE, password_hash TEXT, role TEXT, class_id INTEGER
+      email TEXT UNIQUE, password_hash TEXT, role TEXT, class_id INTEGER REFERENCES classes(id)
     );
     CREATE TABLE quizzes (
       id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, description TEXT,
-      teacher_id INTEGER, class_id INTEGER, time_limit_minutes INTEGER DEFAULT 20,
+      teacher_id INTEGER REFERENCES users(id), class_id INTEGER REFERENCES classes(id),
+      time_limit_minutes INTEGER DEFAULT 20,
       opens_at DATETIME, closes_at DATETIME,
       negative_marking INTEGER DEFAULT 0, penalty_fraction REAL DEFAULT 0.25,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE questions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, quiz_id INTEGER,
+      id INTEGER PRIMARY KEY AUTOINCREMENT, quiz_id INTEGER REFERENCES quizzes(id) ON DELETE CASCADE,
       body TEXT, points REAL DEFAULT 1, order_index INTEGER DEFAULT 0
     );
     CREATE TABLE options (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, question_id INTEGER,
+      id INTEGER PRIMARY KEY AUTOINCREMENT, question_id INTEGER REFERENCES questions(id) ON DELETE CASCADE,
       body TEXT, is_correct INTEGER DEFAULT 0
     );
     CREATE TABLE attempts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, student_id INTEGER, quiz_id INTEGER,
+      id INTEGER PRIMARY KEY AUTOINCREMENT, student_id INTEGER REFERENCES users(id), quiz_id INTEGER REFERENCES quizzes(id),
       started_at DATETIME DEFAULT CURRENT_TIMESTAMP, submitted_at DATETIME,
       score REAL, max_score REAL, is_submitted INTEGER DEFAULT 0,
       UNIQUE(student_id, quiz_id)
     );
     CREATE TABLE answers (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, attempt_id INTEGER,
-      question_id INTEGER, option_id INTEGER,
+      id INTEGER PRIMARY KEY AUTOINCREMENT, attempt_id INTEGER REFERENCES attempts(id) ON DELETE CASCADE,
+      question_id INTEGER REFERENCES questions(id), option_id INTEGER REFERENCES options(id),
       UNIQUE(attempt_id, question_id)
     );
   `);

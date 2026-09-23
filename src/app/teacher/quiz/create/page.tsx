@@ -75,12 +75,14 @@ export default function CreateQuizPage() {
   function updateOption(qIdx: number, oIdx: number, field: keyof Option, value: string | boolean) {
     setQuestions((prev) => prev.map((q, i) => {
       if (i !== qIdx) return q;
-      const opts = q.options.map((o, j) => {
+      const opts = q.options.map((o, j): Option => {
         if (field === 'is_correct') {
-          // Only one correct answer
-          return { ...o, is_correct: j === oIdx ? true : false };
+          return { ...o, is_correct: j === oIdx };
         }
-        return j === oIdx ? { ...o, [field]: value } : o;
+        if (field === 'body' && typeof value === 'string') {
+          return { ...o, body: value };
+        }
+        return o;
       });
       return { ...q, options: opts };
     }));

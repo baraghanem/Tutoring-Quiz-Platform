@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "seed": "npx tsx scripts/seed.ts",
+    "seed": "tsx scripts/seed.ts",
+    "import:csv": "tsx scripts/import-csv.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -34,6 +35,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
     "jsdom": "^29.1.1",
+    "tsx": "^4.23.15",
     "typescript": "^5",
     "vitest": "^2.1.9"
   }
