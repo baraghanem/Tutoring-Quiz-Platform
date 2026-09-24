@@ -32,6 +32,17 @@ interface RecentQuiz {
   avg_percentage: number | null;
 }
 
+interface MissedQuiz {
+  student_id: number;
+  name_en: string;
+  name_ar: string;
+  email: string;
+  class_name: string;
+  quiz_id: number;
+  quiz_title: string;
+  closes_at: string;
+}
+
 interface GlobalStats {
   total_students: number;
   total_teachers: number;
@@ -44,6 +55,19 @@ export default async function AdminDashboard() {
   if (!session || session.role !== 'admin') redirect('/login');
 
   const db = getDb();
+  const now = new Date().toISOString();
+
+  const missedQuizzes = db.prepare(`
+    SELECT u.id AS student_id, u.name_ar, u.name_en, u.email,
+           c.name AS class_name,
+           q.id AS quiz_id, q.title AS quiz_title, q.closes_at
+    FROM quizzes q
+    JOIN classes c ON q.class_id = c.id
+    JOIN users u ON u.class_id = c.id AND u.role = 'student'
+    LEFT JOIN attempts a ON a.quiz_id = q.id AND a.student_id = u.id AND a.is_submitted = 1
+    WHERE q.closes_at < ? AND a.id IS NULL
+    ORDER BY q.closes_at DESC, c.name, u.name_en
+  `).all(now) as MissedQuiz[];
 
   const stats = db.prepare(`
     SELECT
@@ -122,6 +146,12 @@ export default async function AdminDashboard() {
             <div className="stat-value" style={{ color: 'var(--color-accent)' }}>{stats.total_submissions}</div>
             <div className="stat-label">Submissions · تسليمات</div>
           </div>
+          <div className="stat-card">
+            <div className="stat-value" style={{ color: missedQuizzes.length > 0 ? 'var(--color-warning)' : 'var(--color-text-2)' }}>
+              {missedQuizzes.length}
+            </div>
+            <div className="stat-label">Missed · فائتة</div>
+          </div>
         </div>
 
         {/* Classes */}
@@ -188,6 +218,36 @@ export default async function AdminDashboard() {
                     <div style={{ fontSize: '0.78rem', color: 'var(--color-text-2)', marginTop: '0.2rem' }}>
                       {q.teacher_name} · {q.submissions} submissions
                       {q.avg_percentage != null ? ` · ${Math.round(q.avg_percentage)}% avg` : ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Missed quizzes */}
+          <div className="card" style={{ borderLeft: '4px solid var(--color-warning)' }}>
+            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <strong>⚠️ Missed Quizzes · اختبارات فائتة ({missedQuizzes.length})</strong>
+              <Link href="/admin/reports#missed" style={{ fontSize: '0.8rem', color: 'var(--color-primary)' }}>Details →</Link>
+            </div>
+            {missedQuizzes.length === 0 ? (
+              <div className="empty-state" style={{ padding: '1.5rem 0' }}>
+                <p style={{ color: 'var(--color-success)' }}>✓ All eligible students completed closed quizzes!</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: 280, overflowY: 'auto' }}>
+                {missedQuizzes.slice(0, 8).map((m) => (
+                  <div key={`${m.student_id}-${m.quiz_id}`} style={{ padding: '0.5rem 0', borderBottom: '1px solid var(--color-border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                      <div>
+                        <div dir="rtl" style={{ fontWeight: 600, fontSize: '0.88rem' }}>{m.name_ar}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-2)' }}>{m.name_en} ({m.class_name})</div>
+                      </div>
+                      <span className="badge badge-warning" style={{ fontSize: '0.68rem', whiteSpace: 'nowrap' }}>Missed</span>
+                    </div>
+                    <div dir="auto" style={{ fontSize: '0.78rem', color: 'var(--color-text-2)', marginTop: '0.2rem' }}>
+                      Quiz: {m.quiz_title}
                     </div>
                   </div>
                 ))}

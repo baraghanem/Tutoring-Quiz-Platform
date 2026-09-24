@@ -15,11 +15,35 @@ interface StudentResult {
   total_max: number;
 }
 
+interface MissedRecord {
+  student_id: number;
+  name_ar: string;
+  name_en: string;
+  email: string;
+  class_name: string;
+  quiz_id: number;
+  quiz_title: string;
+  closes_at: string;
+}
+
 export default async function AdminReports() {
   const session = await getSession();
   if (!session || session.role !== 'admin') redirect('/login');
 
   const db = getDb();
+  const now = new Date().toISOString();
+
+  const missedList = db.prepare(`
+    SELECT u.id AS student_id, u.name_ar, u.name_en, u.email,
+           c.name AS class_name,
+           q.id AS quiz_id, q.title AS quiz_title, q.closes_at
+    FROM quizzes q
+    JOIN classes c ON q.class_id = c.id
+    JOIN users u ON u.class_id = c.id AND u.role = 'student'
+    LEFT JOIN attempts a ON a.quiz_id = q.id AND a.student_id = u.id AND a.is_submitted = 1
+    WHERE q.closes_at < ? AND a.id IS NULL
+    ORDER BY q.closes_at DESC, c.name, u.name_en
+  `).all(now) as MissedRecord[];
 
   const students = db.prepare(`
     SELECT u.id AS student_id, u.name_ar, u.name_en, c.name AS class_name,
@@ -115,6 +139,53 @@ export default async function AdminReports() {
             </div>
           );
         })}
+
+        {/* Missed Quizzes Tracker */}
+        <div id="missed" style={{ marginTop: '2.5rem', marginBottom: '2.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800 }}>
+              ⚠️ Missed Quizzes Tracker · متابعة الاختبارات الفائتة
+            </h2>
+            <span className="badge badge-warning">{missedList.length} unsubmitted</span>
+          </div>
+          {missedList.length === 0 ? (
+            <div className="card empty-state" style={{ padding: '2rem' }}>
+              <p style={{ color: 'var(--color-success)', fontWeight: 600 }}>✓ All students submitted closed quizzes.</p>
+            </div>
+          ) : (
+            <div className="table-wrapper card" style={{ padding: 0 }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Student · الطالب</th>
+                    <th>Class</th>
+                    <th>Email · البريد</th>
+                    <th>Missed Quiz · الاختبار الفائت</th>
+                    <th>Closed Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {missedList.map((m, i) => (
+                    <tr key={`${m.student_id}-${m.quiz_id}`}>
+                      <td style={{ color: 'var(--color-text-3)', fontWeight: 600 }}>{i + 1}</td>
+                      <td>
+                        <div dir="rtl" style={{ fontWeight: 600 }}>{m.name_ar}</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--color-text-2)' }}>{m.name_en}</div>
+                      </td>
+                      <td><span className="badge badge-primary">{m.class_name}</span></td>
+                      <td style={{ fontSize: '0.85rem', color: 'var(--color-text-2)' }}>{m.email}</td>
+                      <td dir="auto" style={{ fontWeight: 600 }}>{m.quiz_title}</td>
+                      <td style={{ fontSize: '0.8rem', color: 'var(--color-text-2)' }}>
+                        {new Date(m.closes_at).toLocaleDateString('en-GB', { dateStyle: 'medium' })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </main>
     </div>
   );

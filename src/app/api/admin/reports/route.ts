@@ -50,13 +50,29 @@ export async function GET(req: NextRequest) {
     LIMIT 10
   `).all();
 
+  const now = new Date().toISOString();
+
+  const missedQuizzes = db.prepare(`
+    SELECT u.id AS student_id, u.name_ar, u.name_en, u.email,
+           c.name AS class_name,
+           q.id AS quiz_id, q.title AS quiz_title, q.closes_at
+    FROM quizzes q
+    JOIN classes c ON q.class_id = c.id
+    JOIN users u ON u.class_id = c.id AND u.role = 'student'
+    LEFT JOIN attempts a ON a.quiz_id = q.id AND a.student_id = u.id AND a.is_submitted = 1
+    WHERE q.closes_at < ? AND a.id IS NULL
+    ORDER BY q.closes_at DESC, c.name, u.name_en
+  `).all(now);
+
   const stats = db.prepare(`
     SELECT
       (SELECT COUNT(*) FROM users WHERE role = 'student') AS total_students,
       (SELECT COUNT(*) FROM users WHERE role = 'teacher') AS total_teachers,
       (SELECT COUNT(*) FROM quizzes) AS total_quizzes,
       (SELECT COUNT(*) FROM attempts WHERE is_submitted = 1) AS total_submissions
-  `).get();
+  `).get() as Record<string, number>;
 
-  return NextResponse.json({ classes, topStudents, recentQuizzes, stats });
+  stats.missed_quizzes_count = missedQuizzes.length;
+
+  return NextResponse.json({ classes, topStudents, recentQuizzes, missedQuizzes, stats });
 }
