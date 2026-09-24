@@ -1,49 +1,60 @@
 # AI Usage & Collaboration Disclosure
 
-This document discloses how AI tools were utilized during the design, implementation, and verification of the Nour Tutoring Centre Quiz Platform.
+> *"Be honest here. We read this closely."* — Project Brief
+
+This document provides a candid, transparent disclosure of how AI tools were used during the development of the Nour Tutoring Centre Quiz Platform, what mistakes were generated, and how rigorous human review and iterative testing caught and corrected them.
 
 ---
 
-## 1. Overview of AI Assistance
+## 1. Overview of Tools Used & Direction
 
-AI was utilized as an accelerated pair-programmer across multiple phases of the project lifecycle:
+Development was conducted using LLM-assisted pair programming (Claude 3.7 Sonnet / Gemini 2.5/Flash via code assistant tooling) with directives provided via prompt engineering and repository guidelines.
 
-| Project Phase | Primary AI Contribution | Human/Engineering Review & Control |
-|---|---|---|
-| **Architecture & Schema** | Drafted SQLite schema with foreign keys, cascading deletes, and unique constraints. | Audited schema against brief requirements (negative marking, attempt uniqueness, quiz availability window). |
-| **Realistic Bilingual Data** | Generated realistic Jordanian Arabic names, teacher rosters, classes, and domain-accurate quiz questions (Arabic Algebra, English Literature, Arabic Chemistry). | Validated pedagogical accuracy, question correctness, and RTL formatting behavior. |
-| **Scoring Engine** | Outlined negative marking formulas and edge cases (unanswered questions, clamping at zero, penalty fraction options). | Wrote isolated unit tests in Vitest covering all fraction variants (0.25, 0.33, 0.5) and clamped boundary tests. |
-| **Frontend UI & Components** | Generated responsive Next.js pages with CSS variables, clean typography (IBM Plex Sans Arabic), and accessible form controls. | Refactored form handlers to strictly comply with TypeScript 5 strict type checking. |
-| **Testing & Debugging** | Authored test suites for database operations, scoring calculations, and JWT authentication. | Diagnosed SQLite `PRAGMA foreign_keys = ON` nuance during cascade delete verification and corrected test fixtures. |
+### Initial Scaffolding Phase
+- **Direction Given**: Provided the client brief and requested a functional Next.js + SQLite prototype with bilingual Arabic/English schemas, single-attempt constraints, negative marking formulas, and realistic Amman school rosters.
+- **AI Output**: Generated the initial schema, database seeding script (`scripts/seed.ts`), CSS theme, and Next.js page hierarchy. This initial drop was committed in `13c1b6c`.
 
 ---
 
-## 2. Key Areas of AI Acceleration
+## 2. Where the AI Failed & What Human Review Caught
 
-### A. Realistic Domain Data Generation
-- Created a realistic demographic model for an Amman tutoring centre:
-  - 12 realistic teacher profiles with Arabic and English transliterated names.
-  - 60 students distributed across Grade 10 and Grade 11 cohorts (10A, 10B, 11A).
-  - 3 complete 15-question quizzes covering math, literature, and science, complete with varied point distributions and negative marking settings.
-  - 57 simulated historical student attempts with realistic score distributions for Nour's reporting dashboard.
+A critical assessment of the initial AI-generated codebase revealed four significant shortcomings:
 
-### B. Anti-Cheating & Clock Synchronization
-- Identified the vulnerability of relying solely on client-side JavaScript timers for auto-submission.
-- Designed a dual-validation model:
-  1. Client-side UX timer with auto-submit on countdown expiry.
-  2. Server-side start timestamp verification with a 30-second network latency buffer to prevent tampered payloads.
+### 1. The Auto-Submit Stale Closure Bug (Severe Data Loss)
+- **What the AI did**: In `src/app/student/quiz/[id]/page.tsx`, the countdown timer `useEffect` set up an interval that called `submitQuiz(answers, ...)` when time expired. However, `answers` was captured in the closure during mount when it was still empty `{}`.
+- **The Consequence**: When a student ran out of time, the platform auto-submitted an empty answer payload, wiping out all the student's selections.
+- **The Correction**: Replaced the stale closure with an `answersRef` (`useRef<Record<number, number | null>>`) kept in sync with every answer selection. When the timer expires, `answersRef.current` is submitted, preserving every selected answer.
 
-### C. Spreadsheet Ingestion Pipeline
-- Generated the CSV parser and bulk importer in `scripts/import-csv.ts` and sample CSV files in `data/csv/` so that when the tutoring centre exports spreadsheets, Nour can import them in one command.
+### 2. Overstated Documentation vs. Reality
+- **What the AI did**: The initial `DECISIONS.md` claimed features were implemented that did not exist in the code:
+  * Claimed server-side late-submission capping with a "30-second network latency buffer", but the submit route had an empty `if` block.
+  * Claimed deadline clamping against the quiz closing window, but the start route simply added 20 minutes unconditionally.
+  * Claimed missed-quiz reporting, but no missed-quiz query or UI existed.
+- **The Correction**: Rather than leaving false claims in place, we engineered the missing logic:
+  * Extracted `computeDeadline()` and `isLateSubmission()` into a dedicated `src/lib/timing.ts` module with test coverage.
+  * Wired server-side clamping into both the start and submit routes.
+  * Added a `late_submission` column to the `attempts` table schema and surfaced a "⚠️ Late · متأخر" badge in teacher quiz results.
+  * Implemented real missed-quiz SQL queries in `src/app/api/admin/reports/route.ts` and rendered a dedicated Missed Quizzes tracker on both the Admin Dashboard and Admin Reports.
+
+### 3. Conflicting DevDependency (Vercel Build Failure)
+- **What the AI did**: Blindly added `@vitejs/plugin-react@6.1.1` to `devDependencies` in `package.json`, which requires `vite@^8.0.0` as a peer dependency. However, `vitest@2.1.9` uses Vite 5 (`vite@5.4.21`), causing `npm install` on clean machines and Vercel CI to crash with an `ERESOLVE` peer dependency error.
+- **The Correction**: Investigated the dependency tree and observed that `@vitejs/plugin-react` was never imported or used (Vitest runs in `node` test environment). Removed the package and re-locked dependencies so `npm install` runs cleanly without `--legacy-peer-deps` or `--force`.
+
+### 4. Gaps in Test Coverage
+- **What the AI did**: Wrote unit tests for math formulas, SQLite schema constraints, and JWT signing, but left zero tests exercising the actual API route handlers, ownership validation, or deadline clamping.
+- **The Correction**: Added `tests/timing.test.ts` (10 tests) and `tests/api-quiz-flow.test.ts` (7 tests), expanding the automated test suite from 18 to 35 passing tests and verifying single-attempt uniqueness, cross-class isolation, ownership security, and late-submission flagging.
 
 ---
 
-## 3. Human Engineering Oversight & Fixes
+## 3. Configuration Files Note
 
-During the development process, engineering oversight resolved several specific implementation details:
-1. **TypeScript Strict Type Incompatibility**:
-   - The interactive quiz builder had a generic `updateOption` signature where `value: string | boolean` caused TypeScript union narrowing errors with Next.js 16 / Turbopack build. This was refactored into a type-safe discriminated mapping.
-2. **SQLite Foreign Key Enforcement**:
-   - In SQLite, foreign key constraints must be explicitly enabled per connection. Test fixtures were updated to ensure cascade deletes clean up questions and options automatically.
-3. **Dependency Optimization**:
-   - Verified that native bindings for `better-sqlite3` compile seamlessly inside Debian slim containers with `python3 make g++`, and ensured `tsx` was added directly to devDependencies to eliminate npx download latency.
+- **`AGENTS.md`**: Note that the `AGENTS.md` file in the root directory contains Next.js's auto-generated Turbopack rules block injected by `next dev`.
+- **`CLAUDE.md`**: Created as a reference guide for coding conventions and repository commands.
+
+---
+
+## 4. Key Takeaways from AI Collaboration
+
+1. **AI writes confident prose that easily drifts from actual code**: Documentation generated by AI must be audited line-by-line against implementation.
+2. **React hook closures require human scrutiny**: LLMs frequently produce stale-closure bugs inside `setInterval` and `useEffect` callbacks when suppressing eslint dependency warnings.
+3. **Automated tests are the only proof of correctness**: Adding rigorous unit and integration tests was the decisive factor in verifying that boundary conditions (window clamping, negative score floors, late buffers) perform as intended.
