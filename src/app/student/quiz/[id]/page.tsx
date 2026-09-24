@@ -37,6 +37,11 @@ export default function QuizPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const submittedRef = useRef(false);
+  const answersRef = useRef<Record<number, number | null>>({});
+
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
 
   // Start or resume attempt
   useEffect(() => {
@@ -91,15 +96,15 @@ export default function QuizPage() {
       setTimeLeft((t) => {
         if (t <= 1) {
           clearInterval(interval);
-          // Auto-submit
-          submitQuiz(answers, quizData.attempt_id);
+          // Auto-submit with live answers from ref to prevent stale-closure data loss
+          submitQuiz(answersRef.current, quizData.attempt_id);
           return 0;
         }
         return t - 1;
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [quizData, submitQuiz]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [quizData, submitQuiz]);
 
   function formatTime(s: number) {
     const m = Math.floor(s / 60).toString().padStart(2, '0');
@@ -108,7 +113,11 @@ export default function QuizPage() {
   }
 
   function selectOption(questionId: number, optionId: number) {
-    setAnswers((prev) => ({ ...prev, [questionId]: optionId }));
+    setAnswers((prev) => {
+      const updated = { ...prev, [questionId]: optionId };
+      answersRef.current = updated;
+      return updated;
+    });
   }
 
   if (loading) return (
@@ -224,7 +233,7 @@ export default function QuizPage() {
               className="btn btn-accent"
               onClick={() => {
                 if (confirm(`Submit quiz? You have answered ${answeredCount} of ${questions.length} questions.`)) {
-                  submitQuiz(answers, attempt_id);
+                  submitQuiz(answersRef.current, attempt_id);
                 }
               }}
               disabled={submitting}
