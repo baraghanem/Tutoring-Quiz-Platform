@@ -7,7 +7,6 @@ import Navbar from '@/components/Navbar';
 interface Option { body: string; is_correct: boolean; }
 interface Question { body: string; points: number; options: Option[]; }
 interface Class { id: number; name: string; }
-interface UserInfo { name_en: string; name_ar: string; role: string; }
 
 function emptyQuestion(): Question {
   return {
@@ -25,7 +24,6 @@ function emptyQuestion(): Question {
 export default function CreateQuizPage() {
   const router = useRouter();
 
-  const [user, setUser] = useState<UserInfo | null>(null);
   const [classes, setClasses] = useState<Class[]>([]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -40,8 +38,6 @@ export default function CreateQuizPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    // Get current user info from a quick fetch
-    fetch('/api/auth/login', { method: 'GET' }).catch(() => {});
     // Get classes
     fetch('/api/teacher/quizzes')
       .then((r) => r.json())
