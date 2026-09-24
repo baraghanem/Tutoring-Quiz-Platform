@@ -71,14 +71,15 @@ function initSchema(db: Database.Database) {
     );
 
     CREATE TABLE IF NOT EXISTS attempts (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      student_id   INTEGER NOT NULL REFERENCES users(id),
-      quiz_id      INTEGER NOT NULL REFERENCES quizzes(id),
-      started_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-      submitted_at DATETIME,
-      score        REAL,
-      max_score    REAL,
-      is_submitted INTEGER NOT NULL DEFAULT 0,
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_id      INTEGER NOT NULL REFERENCES users(id),
+      quiz_id         INTEGER NOT NULL REFERENCES quizzes(id),
+      started_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+      submitted_at    DATETIME,
+      score           REAL,
+      max_score       REAL,
+      is_submitted    INTEGER NOT NULL DEFAULT 0,
+      late_submission INTEGER NOT NULL DEFAULT 0,
       UNIQUE(student_id, quiz_id)
     );
 
@@ -90,4 +91,10 @@ function initSchema(db: Database.Database) {
       UNIQUE(attempt_id, question_id)
     );
   `);
+
+  try {
+    db.exec(`ALTER TABLE attempts ADD COLUMN late_submission INTEGER NOT NULL DEFAULT 0;`);
+  } catch {
+    // Column already exists
+  }
 }

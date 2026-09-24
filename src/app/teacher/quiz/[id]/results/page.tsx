@@ -9,6 +9,7 @@ interface Result {
   score: number;
   max_score: number;
   submitted_at: string;
+  late_submission: number;
   student_id: number;
   name_en: string;
   name_ar: string;
@@ -54,6 +55,7 @@ export default async function QuizResultsPage({
 
   const results = db.prepare(`
     SELECT a.id AS attempt_id, a.score, a.max_score, a.submitted_at,
+           COALESCE(a.late_submission, 0) AS late_submission,
            u.id AS student_id, u.name_en, u.name_ar, u.email,
            c.name AS class_name
     FROM attempts a
@@ -137,7 +139,12 @@ export default async function QuizResultsPage({
                       <td style={{ fontWeight: 700 }}>{pct}%</td>
                       <td><span className={`badge ${gradeClass}`}>{grade}</span></td>
                       <td style={{ fontSize: '0.8rem', color: 'var(--color-text-2)' }}>
-                        {new Date(r.submitted_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}
+                        <div>{new Date(r.submitted_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}</div>
+                        {r.late_submission === 1 && (
+                          <span className="badge badge-warning" style={{ fontSize: '0.65rem', marginTop: '0.2rem' }}>
+                            ⚠️ Late · متأخر
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );

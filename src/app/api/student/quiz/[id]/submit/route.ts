@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getSessionFromRequest } from '@/lib/auth';
 import { calculateScore, QuestionResult } from '@/lib/scoring';
+import { computeDeadline, isLateSubmission } from '@/lib/timing';
 
 interface AttemptRow {
   id: number;
@@ -16,6 +17,7 @@ interface QuizRow {
   time_limit_minutes: number;
   negative_marking: number;
   penalty_fraction: number;
+  closes_at?: string;
 }
 
 interface QuestionRow {
@@ -65,18 +67,12 @@ export async function POST(
   }
 
   const quiz = db.prepare(
-    'SELECT id, time_limit_minutes, negative_marking, penalty_fraction FROM quizzes WHERE id = ?'
+    'SELECT id, time_limit_minutes, negative_marking, penalty_fraction, closes_at FROM quizzes WHERE id = ?'
   ).get(quizId) as QuizRow;
 
-  // Verify time limit — we accept the submission even if slightly over (network delay)
-  // but flag it if more than 30s over
-  const startedAt = new Date(attempt.started_at);
-  const deadline = new Date(startedAt.getTime() + quiz.time_limit_minutes * 60 * 1000);
-  const gracePeriodMs = 30 * 1000;
-  if (now > new Date(deadline.getTime() + gracePeriodMs)) {
-    // Still accept but mark with actual submission time
-    // The score is calculated from whatever was submitted
-  }
+  // Server-side timing verification with grace period buffer
+  const deadline = computeDeadline(attempt.started_at, quiz.time_limit_minutes, quiz.closes_at);
+  const isLate = isLateSubmission(now, deadline, 30);
 
   // Save answers and compute score in a transaction
   const submitTx = db.transaction(() => {
@@ -121,9 +117,9 @@ export async function POST(
     );
 
     db.prepare(`
-      UPDATE attempts SET is_submitted = 1, submitted_at = ?, score = ?, max_score = ?
+      UPDATE attempts SET is_submitted = 1, submitted_at = ?, score = ?, max_score = ?, late_submission = ?
       WHERE id = ?
-    `).run(now.toISOString(), result.score, result.max_score, attempt_id);
+    `).run(now.toISOString(), result.score, result.max_score, isLate ? 1 : 0, attempt_id);
 
     return result;
   });
@@ -132,6 +128,7 @@ export async function POST(
 
   return NextResponse.json({
     ok: true,
+    is_late: isLate,
     ...scoreResult,
   });
 }

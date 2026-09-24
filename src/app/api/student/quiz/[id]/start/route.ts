@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getSessionFromRequest } from '@/lib/auth';
+import { computeDeadline } from '@/lib/timing';
 
 interface QuizRow {
   id: number;
@@ -55,7 +56,7 @@ export async function POST(
   // If there's an in-progress attempt, check if time has expired
   if (existing && !existing.is_submitted) {
     const startedAt = new Date(existing.started_at);
-    const deadline = new Date(startedAt.getTime() + quiz.time_limit_minutes * 60 * 1000);
+    const deadline = computeDeadline(startedAt, quiz.time_limit_minutes, quiz.closes_at);
     if (new Date() > deadline) {
       // Auto-submit the expired attempt with whatever answers exist
       db.prepare(
@@ -80,7 +81,7 @@ export async function POST(
   ).run(studentId, quizId, now);
 
   const attemptId = result.lastInsertRowid as number;
-  const deadline = new Date(new Date(now).getTime() + quiz.time_limit_minutes * 60 * 1000);
+  const deadline = computeDeadline(now, quiz.time_limit_minutes, quiz.closes_at);
   const questions = getQuestionsForAttempt(db, quizId);
 
   return NextResponse.json({
