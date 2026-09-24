@@ -2,144 +2,106 @@
 
 As stated in the project brief: *"The client is not available for questions. When something is unclear, decide, and write the decision down. That is part of the work."*
 
-This document outlines the key product, architectural, security, and pedagogical decisions made during the design and implementation of this platform.
+This document addresses the four required areas:
+1. The **assumptions** made
+2. What was built that **Nour did not ask for and why**
+3. What was **deliberately left out**
+4. What we would do next with **another week**
 
 ---
 
-## 1. Single Attempt Enforcement & Anti-Cheating
+## 1. Assumptions Made
 
-### Context
-The brief specifies: *"Once a student starts, the clock ticks down. If time runs out, it auto-submits. One attempt per student."*
+Because Nour is running an active tutoring centre in Amman and is unavailable for real-time questions, several key operational and pedagogical assumptions guided product and technical trade-offs:
 
-### Decisions
-1. **Atomic Attempt Creation**:
-   - When a student clicks "Start Quiz", an attempt record is created in SQLite with `started_at = CURRENT_TIMESTAMP`.
-   - The `attempts` table contains a hard database-level unique constraint: `UNIQUE(student_id, quiz_id)`.
-   - Any duplicate POST request to `/api/student/quiz/[id]/start` is rejected with `409 Conflict` or returns the ongoing attempt.
-2. **Server-Side Time Limit Enforcement**:
-   - Client-side JavaScript provides an interactive countdown timer with visual urgency alerts (turning amber at 5m, red at 1m) and triggers auto-submission at `0:00`.
-   - To prevent cheating via clock manipulation or pausing JavaScript, the server verifies `submitted_at <= started_at + (time_limit_minutes * 60) + 30 seconds` (a 30-second network latency buffer). Late submissions are capped or flagged.
-3. **No Retakes**:
-   - Once submitted (`is_submitted = 1`), answers cannot be altered and the quiz cannot be re-taken.
+1. **Student Device Constraints & Mobile Access**:
+   - *Assumption*: Most students take quizzes on smartphones using local cellular (3G/4G) or home Wi-Fi networks in Amman.
+   - *Design Implication*: The UI is strictly mobile-first with touch-friendly targets (minimum 48px hit areas), minimal network overhead, zero heavy client-side JavaScript libraries, and resilience to mobile network latency.
 
----
+2. **School Cohorts & Class Scoping**:
+   - *Assumption*: The 300 students belong to distinct cohorts (starting with 10A, 10B, 11A) and teachers teach specific classes. Quizzes are not centre-wide free-for-alls; a 10th-grade algebra quiz should only be seen and attempted by students enrolled in that specific class.
+   - *Design Implication*: Enforced a relational schema linking `quizzes` to `classes`, filtering student dashboards so students only access quizzes assigned to their class cohort.
 
-## 2. Negative Marking Mechanics
+3. **Time Windows & Availability Windows**:
+   - *Assumption*: Teachers set availability windows (e.g., Friday 2:00 PM to Sunday 8:00 PM) to allow students to take the quiz asynchronously from home within a designated window, but each student receives a fixed countdown (typically 20 minutes) once they click "Start".
+   - *Design Implication*: Two distinct time dimensions are maintained: the quiz availability window (`opens_at` to `closes_at`) and the student session duration (`time_limit_minutes`).
 
-### Context
-The brief specifies: *"We have some teachers who want negative marking (lose 0.25 points for a wrong answer to discourage guessing) and some who hate it. Make that an option per quiz."*
+4. **Negative Marking Pedagogy & Scoring Limits**:
+   - *Assumption*: Teachers who request negative marking want to penalize blind guessing (standard practice for Tawjihi/SAT prep), but students who leave a question unanswered should receive `0` points (no penalty). Furthermore, a student's total quiz score should never fall below `0.0`.
+   - *Design Implication*: Implemented configurable penalty fractions per quiz (¼, ⅓, ½, 1×), with unattempted questions receiving 0 and final scores clamped to a minimum of 0.
 
-### Decisions
-1. **Configurable Per Quiz**:
-   - `negative_marking` boolean flag (`0` or `1`) on each quiz.
-   - `penalty_fraction` configurable per quiz (defaults to `0.25` / ¼ point, with choices of ¼, ⅓, ½, or 1× in the quiz builder).
-2. **Pedagogical Fairness**:
-   - **Correct Answer**: Award full question points (e.g. `+1.0` or custom points).
-   - **Unanswered / Skipped Question**: `0.0` points (no penalty). Students who recognize they do not know an answer are not penalized, which aligns with standard SAT/Tawjihi testing practices.
-   - **Incorrect Answer**: Deduct `points * penalty_fraction` (e.g. `-0.25`).
-   - **Clamping at Zero**: A student's total score cannot drop below `0.0` on any quiz.
-3. **Clear Student Notification**:
-   - The quiz instructions and top banner explicitly warn students if negative marking is enabled, explaining the exact penalty fraction so students can make informed decisions about guessing.
+5. **Bilingual Reality in Jordan**:
+   - *Assumption*: While interface labels and navigation can be bilingual, students have Arabic names, and STEM/humanities quizzes vary (some in Arabic, some in English, such as English Literature).
+   - *Design Implication*: User records store both `name_ar` and `name_en`. Text fields use HTML `dir="auto"` to automatically render RTL for Arabic and LTR for English without forcing the user to switch site-wide language toggles.
+
+6. **Grading Thresholds**:
+   - *Assumption*: Nour needs a standard academic grading distribution for reporting and quick parent communication.
+   - *Design Implication*: A standard 5-tier grading band was adopted: A (≥90%), B (≥75%), C (≥60%), D (≥50%), and F (<50%).
 
 ---
 
-## 3. Bilingualism & Arabic RTL Support
+## 2. What We Built That Nour Did Not Ask For (and Why)
 
-### Context
-The brief specifies: *"Our students speak Arabic and English. The interface can be in either language (or both), but Arabic names and quiz content must display correctly (RTL for Arabic text)."*
+Nour described her immediate pain point: paper quizzes are taking too much time, and she needs a simple website with timed quizzes, scores, and missed-quiz visibility. To ensure the application is reliable, secure, and production-ready for her operational reality, we introduced several targeted enhancements:
 
-### Decisions
-1. **Bilingual Schema**:
-   - Users have both `name_ar` and `name_en` fields (e.g. `أحمد الخطيب` / `Ahmad Al-Khatib`).
-   - The UI defaults to showing Arabic names with English transliteration where helpful.
-2. **Directional Typography & Layout**:
-   - All text inputs and textareas use `dir="auto"`, allowing the browser to automatically format Arabic input right-to-left (RTL) and English input left-to-right (LTR).
-   - High-readability fonts loaded: Google Font *IBM Plex Sans Arabic* and *Outfit* for modern numerals and typography.
-   - Badges, status pills, and scorecards use bidirectional styling that preserves numerical readability (e.g., scores like `8.5 / 10` remain formatted correctly without mirrored punctuation).
+1. **Server-Side Deadline Clamping & Network Latency Buffer (`src/lib/timing.ts`)**:
+   - *Why*: Nour asked for a countdown timer. However, relying solely on client-side browser timers is vulnerable: students can manipulate local system clocks or pause JavaScript. Furthermore, if a student opens a 20-minute quiz 5 minutes before the quiz window closes (e.g. at 7:55 PM for a window closing at 8:00 PM), the timer must clamp to 8:00 PM rather than granting an illegal 15 minutes past the deadline.
+   - *Implementation*: `computeDeadline()` clamps to `min(started_at + duration, closes_at)`. On submission, `isLateSubmission()` checks against a 30-second network latency buffer to accommodate mobile connection lag while recording a `late_submission = 1` flag displayed to teachers.
 
----
+2. **Automated Missed-Quiz Detection Engine**:
+   - *Why*: Nour specifically noted: *"I also want to see how the students did... and any students who missed their quiz."* Rather than forcing Nour to cross-reference class rosters against submission lists on paper, we built an automated query.
+   - *Implementation*: Queries all students enrolled in a class who have no completed attempt for quizzes whose `closes_at < CURRENT_TIMESTAMP`. This feeds directly into an interactive "Missed Quizzes" tracker on both Nour's Admin Dashboard and the Admin Reports page.
 
-## 4. Class-Based Segmentation
+3. **Spreadsheet Ingestion CLI (`npm run import:csv`)**:
+   - *Why*: Nour stated: *"I will send you our real student list, teacher list and last week's quiz as spreadsheets once you have something to show me."* In anticipation of receiving Excel/CSV files, we built a CSV import pipeline with pre-formatted CSV template files in `data/csv/`.
+   - *Implementation*: Allows Nour or an IT assistant to drop school rosters into `data/csv/` and run `npm run import:csv` without manual SQL entry or database migrations.
 
-### Context
-Nour's centre has approximately 300 students and 12 teachers across multiple grade cohorts (e.g., Class 10A, Class 10B, Class 11A).
+4. **Shuffle Options for Cheating Mitigation**:
+   - *Why*: When students in the same class take quizzes on their phones while sitting together, option order is a common vector for copying.
+   - *Implementation*: When `/api/student/quiz/[id]/start` returns question data, option order is randomized per attempt while preserving database IDs for deterministic scoring.
 
-### Decisions
-1. **Targeted Quizzes**:
-   - Each quiz is created for a designated `class_id`.
-   - Students only see and take quizzes assigned to their class, preventing student clutter and accidental cross-grade access.
-2. **Teacher Class Scoping**:
-   - Teachers select which class a quiz is assigned to upon creation.
-   - Results, student lists, and missed quiz tracking are organized cleanly by class.
+5. **Docker Compose & Self-Contained SQLite Architecture**:
+   - *Why*: To satisfy the evaluation requirement of a guaranteed one-command setup without requiring Nour or evaluators to configure external database servers (PostgreSQL/MySQL), manage connection strings, or install global binaries.
+   - *Implementation*: Docker Compose with automated schema migration, healthcheck, and persistent volume mapping.
 
 ---
 
-## 5. Quiz Availability Windows
+## 3. What We Deliberately Left Out
 
-### Context
-The brief specifies: *"a window when it is open (e.g. Friday 2pm to Sunday 8pm)."*
+To ship a rock-solid, focused solution for Thursday without scope creep or brittle abstractions, the following features were deliberately excluded:
 
-### Decisions
-1. **Timestamp Format**:
-   - All `opens_at` and `closes_at` timestamps are stored as standard ISO-8601 strings in UTC.
-2. **Student Access Rules**:
-   - **Before `opens_at`**: Quiz displays as "Upcoming" with opening date/time; cannot be started.
-   - **Between `opens_at` and `closes_at`**: Quiz displays as "Active"; student can start their attempt.
-   - **After `closes_at`**: Quiz displays as "Closed"; unattempted quizzes are marked as "Missed".
-3. **In-Progress at Close Time**:
-   - If a student starts 5 minutes before the quiz window closes, the time limit is constrained by `min(remaining_quiz_duration, time_until_window_close)`.
+1. **Item-Difficulty Curves & Psychometric Analytics**:
+   - *Rationale*: We considered computing point-biserial correlations and discrimination indices for individual questions. However, for a tutoring centre with 20 students per class, sample sizes are far too small for statistical validity. Instead, we prioritized class averages, submission rates, raw score distributions, and late flags that teachers can immediately act on.
 
----
+2. **Rich Text / LaTeX Math Formula Editor in Quiz Builder**:
+   - *Rationale*: Implementing a complex WYSIWYG or MathQuill editor introduces heavy JavaScript dependencies (2MB+ bundle sizes) that degrade mobile performance and create rendering glitches on low-end Android devices. Plain text with standard Unicode math symbols (`x² + 2x = 0`) loads instantly and renders reliably across all mobile browsers.
 
-## 6. Nour's (Admin) Dashboard & Missed Quiz Reporting
+3. **Webcam Proctoring and Screen-Lock Monitoring**:
+   - *Rationale*: High-stakes proctoring tools (Honorlock-style camera feeds, fullscreen locking) alienate students, fail frequently on mobile browsers, and require high bandwidth that students in Amman may not have. Instead, we relied on server-side time clamping, randomized option shuffling, and hard database-level single-attempt constraints.
 
-### Context
-The brief specifies: *"Nour (the admin) wants a simple overview: how many students took quizzes this week, average scores per class, and any students who missed their quiz."*
+4. **Multi-Attempt Quiz Retakes**:
+   - *Rationale*: The brief was explicit: *"Students should not be able to take a quiz twice."* Supporting retakes or practice modes would complicate attempt uniqueness constraints and state management. We strictly enforced one attempt per student per quiz via a `UNIQUE(student_id, quiz_id)` database constraint.
 
-### Decisions
-1. **Central KPI Cards**:
-   - Total students, total quizzes, total completed attempts this week, overall centre average score.
-2. **Class Breakdown**:
-   - Cards for each class displaying participation rate and average score.
-3. **Missed Quiz Detection**:
-   - Calculated by querying students enrolled in a class who have **no submitted attempt** for any quiz whose `closes_at < CURRENT_TIMESTAMP`.
-   - Displays student name, email, class, and the missed quiz title so Nour can follow up with parents or schedule makeup sessions.
-4. **Question Analytics for Teachers**:
-   - Item difficulty analysis shows % of students who answered each question correctly vs incorrectly, highlighting the most missed questions.
+5. **Real-Time WebSockets**:
+   - *Rationale*: Real-time Socket.io connections are fragile on cellular mobile networks that switch between 4G and 3G towers. Stateless HTTP REST endpoints with atomic transactions provide better reliability and zero persistent connection overhead.
 
 ---
 
-## 7. Data Ingestion & Spreadsheet Loading
+## 4. What We Would Do Next If We Had Another Week
 
-### Context
-The brief specifies: *"There are no files attached to this brief. Create your own sample data that matches what the client describes. Make it realistic, and make it loadable, because the real data will arrive as spreadsheets."*
+If given another week to build upon this foundation, we would implement the following high-impact roadmap:
 
-### Decisions
-1. **Bilingual Seed Dataset (`npm run seed`)**:
-   - Automatically populates 1 admin (Nour), 4 teachers, 60 students across 3 classes (10A, 10B, 11A), 3 complete quizzes (Arabic Algebra, English Literature, Arabic Chemistry), and 57 realistic past attempts.
-2. **Spreadsheet CSV Importer (`npm run import:csv`)**:
-   - Provides ready-to-use CSV template files in `data/csv/`:
-     * `classes.csv`
-     * `teachers.csv` (all 12 teachers in Amman)
-     * `students.csv`
-   - When real school rosters arrive as CSV/Excel exports, Nour can drop the files into `data/csv/` and run `npm run import:csv`.
+1. **Automated WhatsApp Notification Bot for Parents**:
+   - In Amman tutoring centres, parental follow-up is predominantly conducted via WhatsApp. We would integrate a WhatsApp Business webhook triggered by the Missed Quiz engine, automatically alerting parents when their child has missed a weekend quiz deadline.
 
----
+2. **Offline-First Quiz PWA (Service Worker + IndexedDB)**:
+   - To protect students against cellular drops mid-quiz, implement a Service Worker that caches the active quiz and queues answer selections locally in IndexedDB, auto-syncing with the server as soon as connectivity resumes.
 
-## 8. Technology Stack & Database Selection
+3. **Teacher Bulk Question Import (Excel / Aiken format)**:
+   - Extend the CSV importer into the teacher web UI, allowing teachers to paste questions in standard Aiken format (`Question? A) ... B) ... ANSWER: A`) or upload an Excel sheet to create a 15-question quiz in seconds rather than typing each question manually.
 
-### Context
-The brief specifies: *"Use any language, framework or database you like. We will run your project from your README, so it must start with one command on a clean machine. Docker Compose is the easiest way to guarantee that. A no-Docker path with SQLite is fine too..."*
+4. **Exportable PDF Student Progress Reports**:
+   - Build a server-side PDF generator allowing Nour to download printable, branded PDF report cards for each student to hand to parents during parent-teacher conferences.
 
-### Decisions
-1. **Next.js 16 + React 19 + TypeScript**:
-   - Unified stack for frontend UI, API routes, and backend business logic.
-   - Zero client-side bundle bloat via React Server Components.
-2. **SQLite via `better-sqlite3`**:
-   - Synchronous, zero-network-latency embedded database.
-   - Runs everywhere without needing external database servers (Postgres/MySQL) to be running or configured.
-   - WAL (Write-Ahead Logging) enabled for high concurrent read performance.
-   - Persistent disk volume mapped in Docker Compose to ensure data survives container restarts.
-3. **Stateless JWT Auth**:
-   - Signed using `jose` with `HS256`, stored in secure `httpOnly` cookies.
-   - Works seamlessly across server-side rendering, API handlers, and route middleware.
+5. **Granular Question-Level Teacher Review**:
+   - Expand the teacher results view so teachers can click on any student's attempt and view their exact selected answers question-by-question, highlighting common misconceptions during in-class review sessions.
